@@ -3,7 +3,7 @@
 	"displayName": "GLua Enhanced (Garry's Mod/Gmod Lua)",
 	"description": "GLua language support for Visual Studio Code",
 	"license": "GNU General Public License v3.0",
-	"version": "2.5.5",
+	"version": "2.6.0",
 	"engines": {
 		"vscode": "^0.10.1"
 	},
@@ -27,6 +27,21 @@
 		"onLanguage:glua"
 	],
 	"contributes": {
+		"configuration": {
+			"title": "GLua Enhanced",
+			"properties": {
+				"glua-enhanced.customWiki.url": {
+					"type": "string",
+					"default": "http://127.0.0.1:4321",
+					"description": "Base URL of a self-hosted gmodwiki instance with custom pages (serves /gluadump.json). Functions, classes and hooks documented there (e.g. the Trolleybus System addon) get autocomplete/hover/signature support. Empty = disabled."
+				},
+				"glua-enhanced.customWiki.pollSeconds": {
+					"type": "number",
+					"default": 60,
+					"description": "How often (seconds) to check the custom wiki for documentation updates. 0 = never (loads once on startup)."
+				}
+			}
+		},
 		"snippets": [
 			{
 				"language": "glua",

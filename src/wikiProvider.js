@@ -47,6 +47,9 @@ class WikiProvider {
 					for (let k in data) this.wiki[k] = data[k];
 					for (let k in this.docs) delete this.docs[k];
 
+					// Re-apply the custom wiki overlay (the download replaced the data)
+					if (this.GLua.CustomWikiProvider) this.GLua.CustomWikiProvider.mergeInto(this.wiki);
+
 					this.GLua.CompletionProvider.createCompletionItems();
 
 					console.log("vscode-glua: gmod wiki downloaded and ingested");
@@ -266,8 +269,18 @@ class WikiProvider {
 
 		let links = [];
 		if ("LINK" in doc) {
-			links.push({ label: "$(notebook) Wiki", link: WIKI_URL + doc["LINK"] });
-			links.push({ label: "$(edit) Edit", link: WIKI_URL + doc["LINK"].replace(/#(.*?)$/, "") + "~edit" });
+			if (/^https?:\/\//.test(doc["LINK"])) {
+				// Absolute link: an entry from a custom (self-hosted) wiki
+				links.push({ label: "$(notebook) Wiki", link: doc["LINK"] });
+				try {
+					const url = new URL(doc["LINK"]);
+					const address = decodeURIComponent(url.pathname.replace(/^\//, ""));
+					if (address) links.push({ label: "$(edit) Edit", link: url.origin + "/custom/edit?address=" + encodeURIComponent(address) });
+				} catch (e) {}
+			} else {
+				links.push({ label: "$(notebook) Wiki", link: WIKI_URL + doc["LINK"] });
+				links.push({ label: "$(edit) Edit", link: WIKI_URL + doc["LINK"].replace(/#(.*?)$/, "") + "~edit" });
+			}
 		}
 		if ("SRC" in doc) {
 			links.push({ label: "$(source-control) View Source", link: WikiProvider.getSrcGitHubURL(doc["SRC"]) });

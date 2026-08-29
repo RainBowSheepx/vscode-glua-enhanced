@@ -1,6 +1,7 @@
 const vscode = require("vscode");
 
 const WikiProvider = require("./wikiProvider");
+const CustomWikiProvider = require("./customWikiProvider");
 const { GLuaParser } = require("./gluaparse");
 const { CompletionProvider } = require("./completionProvider");
 const SignatureProvider = require("./signatureProvider");
@@ -42,6 +43,7 @@ class GLua {
 		new WikiProvider(this);
 		new SignatureProvider(this);
 		new CompletionProvider(this);
+		new CustomWikiProvider(this);
 		new ReferenceProvider(this);
 		new HoverProvider(this);
 		new ColorProvider(this);
@@ -90,6 +92,9 @@ module.exports = {
 	deactivate: () => {
 		if (GLuaInstance && GLuaInstance.downloadingMsg) {
 			GLuaInstance.downloadingMsg.dispose();
+		}
+		if (GLuaInstance && GLuaInstance.CustomWikiProvider) {
+			GLuaInstance.CustomWikiProvider.dispose();
 		}
 	}
 };
