@@ -1,117 +1,69 @@
-<p align="center">
-	<img alt="Logo" src="https://github.com/WilliamVenner/vscode-glua-enhanced/blob/master/resources/logo.png?raw=true"/>
-</p>
+# vscode-glua-enhanced + self-hosted gmodwiki
 
-# 👨‍💻 vscode-glua-enhanced
+Форк [WilliamVenner/vscode-glua-enhanced](https://github.com/WilliamVenner/vscode-glua-enhanced) —
+плагина VS Code для GLua (Garry's Mod Lua) — с интеграцией нашей self-hosted вики
+(репозиторий **gmodwiki-selfhosted**): всё, что задокументировано на вики
+(например, аддон **Trolleybus System**), получает автодополнение, hover-подсказки
+и подсказки сигнатур наравне с официальным API, и обновляется автоматически при
+изменении страниц вики.
 
-Supercharge your Garry's Mod development experience!
+## Что добавлено к оригиналу
 
-# Media
+- **`src/customWikiProvider.js`** — загрузка `/gluadump.json` с вики, слияние с
+  официальными данными, кеш в globalState (работает офлайн), опрос обновлений
+  (лёгкий `?check=1`, версия меняется при любом изменении страниц или формата дампа);
+- хуки из custom-вики в **`hook.Add("` / `hook.Call("`** (семейства с флагом
+  `HOOK_ADD` из дампа; `ENT:`/`WEAPON:`-оверрайды по-прежнему не предлагаются);
+- автодополнение имён событий в **`Trolleybus_System.RunEvent("`** (без приставки
+  `TrolleybusSystem_`) и **`Trolleybus_System.RunChangeEvent("`** (ещё и без
+  суффикса `Changed`) — функции-диспетчеры и приставки объявляет сам дамп;
+- ссылки **Wiki**/**Edit** в hover ведут на страницы и редактор вашей вики;
+- настройки:
 
-<details><summary>Click!</summary>
+| Настройка | По умолчанию | Описание |
+|---|---|---|
+| `glua-enhanced.customWiki.url` | `http://127.0.0.1:4321` | Базовый URL вики (пустая строка — выключить) |
+| `glua-enhanced.customWiki.pollSeconds` | `60` | Период проверки обновлений, сек (0 — только при старте) |
 
-![](https://i.imgur.com/AklgD6Z.gif)
+## Сборка и установка
 
-![](https://i.imgur.com/RzRw1PP.gif)
+Требуется Node.js 18+ и git (зависимость `gluaparse` ставится из git).
 
-![](https://i.imgur.com/tPCzNIv.gif)
+```sh
+npm ci
+npx webpack --mode production
+npx vsce package
+```
 
-![](https://i.imgur.com/qoFhgWa.png)
+Получится `vscode-glua-enhanced-<версия>.vsix`. Установка:
 
-![](https://i.imgur.com/OCb740O.png)
+```sh
+code --install-extension vscode-glua-enhanced-2.6.3.vsix
+```
 
-![](https://i.imgur.com/4PEOp4C.png)
+или в VS Code: Extensions → `...` → **Install from VSIX...**. Версию из
+маркетплейса перед этим удалите. Подробности — в [BUILD.md](BUILD.md).
 
-![](https://i.imgur.com/EoB99zZ.png)
+## Развёртывание связки целиком
 
-![](https://i.imgur.com/QRKMSh8.png)
+1. Разверните вики по README репозитория **gmodwiki-selfhosted** (Node/Docker,
+   PostgreSQL, импорт документации из `db_backup/`).
+2. Установите этот плагин и укажите адрес вики в `glua-enhanced.customWiki.url`.
+3. Проверка: откройте `.lua`-файл (режим языка — **GLua**), наберите
+   `Trolleybus_System.` — должно появиться автодополнение библиотеки; в
+   Developer Tools → Console будет строка `vscode-glua: custom wiki ingested (…)`.
 
-![](https://i.imgur.com/X19jxT0.png)
+Если автодополнения нет:
+- статус-бар должен показывать язык **GLua** (а не Lua другого расширения);
+- вики должна быть доступна по настроенному URL (или будет использован кеш);
+- лог активации: Help → Toggle Developer Tools → Console.
 
-</details>
+## Важно для разработчиков форка
 
-## Features
+`babel.config.json` транспилирует под **node 7** — в `src/` нельзя использовать
+`async/await` (вкомпилируется вызов отсутствующего `regeneratorRuntime`, и
+активация упадёт). Только промисы/колбэки, как в остальном коде.
 
-* Syntax highlighting
-* Auto completion & wiki integration for almost everything in Garry's Mod
-* Client/Server/Menu flags
-* ![](https://i.imgur.com/2SlS4Gc.png) flags
-* Colour palette for `Color()`
-* Notes, Warnings, Bugs, etcc. imported from wiki
-* Function argument names, types and descriptions shown as you type
-* Function enum arguments autocompletion
-* File icons for `.lua`, `.vmt`, `.vtf`, `.mdl`, `*.vtx`, `.vvd`, `.phy`
-* `.png` & `.vmt` file previews
-* Workspace `models/`, `materials/`, `sound/` and `lua/` autocompletion file browser
-* Default `sound/` autocompletion file browser
-* Default `materials/flags16/` autocompletion file browser
-* Default `materials/icon16/` autocompletion file browser
-* "View Source" auto completions button to look at the GitHub Lua source of literally every Lua-defined function in Garry's Mod
-* NetworkVar discovery and autocompletion
-* Net message discovery and autocompletion
-* Function signatures
-* Hook callback signatures
-* Hover documentation
-* References & definitions
-* Hover to see string length and cursor position
-* Hover to decode Lua ASCII byte sequences
-* Locals & globals autocompletion
-* Global table autocompletion
-* See definitions of functions defined in the [Garry's Mod Lua repository](https://github.com/Facepunch/garrysmod)
-* Jump to global and local definitions
+---
 
-_And way more that I can't really be bothered to list because there are just too many :D_
-
-### Workspace Globals Scanner
-
-![](https://i.imgur.com/h9bRE4T.png)
-
-### Global Calls Optimizer
-
-![](https://i.imgur.com/o45kMdL.png)
-
-### Bytecode Heatmap Generator
-
-Generates a (very, VERY approximate) "heatmap" of how heavy some parts of your code are, and allows you to inspect what bytecode is being generated and where.
-
-![](https://i.imgur.com/Z19qm3W.png)
-
-Credits: [Spar](https://github.com/GitSparTV)
-
-## Common Issues
-
-#### Where are the file icons?!
-
-Click the Gear icon in the bottom left of VSCode, click "File Icon Theme" and then select GLua.
-
-#### _Auto completion documentation isn't showing up!_
-
-Press `CTRL + Space`
-
-#### I'm not seeing globals or local variables
-
-You may have the `editor.quickSuggestions` setting set to `false`.
-
-## Bugs/Feature Requests
-
-Please [open an issue](https://github.com/WilliamVenner/vscode-glua-enhanced/issues) to report bugs and suggest features.
-
-## Recommended Companion Extensions
-
-### [glualint](https://marketplace.visualstudio.com/items?itemName=goz3rr.vscode-glualint)
-
-A GLua linter, powered by [FPtje's glualint](https://github.com/FPtje/GLuaFixer).
-
-## gluadump
-
-This extension uses the [gluadump](https://github.com/WilliamVenner/gluadump) addon to extract some information (e.g. `debug.getinfo` data for the "View Source" buttons) from Garry's Mod and may need to periodically be updated as new features and libraries are added to Garry's Mod.
-
-## Credits
-
-[lua.tmLanguage.json](https://github.com/WilliamVenner/vscode-glua-enhanced/blob/master/syntaxes/lua.tmLanguage.json) taken & modified from [sumneko/vscode-lua](https://github.com/sumneko/vscode-lua/)
-
-Bytecode heatmap generator written by [Spar](https://github.com/GitSparTV) for [LLLua](https://github.com/GitSparTV/LLLua/)
-
-[vtflib.js](https://github.com/meepen/vtflib.js) by [Meepen](https://github.com/meepen)
-
-[gluac](https://github.com/everyday-as/gluac) made by Matt Stevens (MIT License)
+Оригинальный плагин: © William Venner, GPL-3.0 ([исходный README](https://github.com/WilliamVenner/vscode-glua-enhanced)).
