@@ -368,7 +368,20 @@ class CompletionProvider {
 				// Check for library
 				if (func_name in CompletionProvider.completions.libraryFunc) {
 					if (CompletionProvider.completions.libraryFunc[func_name] !== true) {
-						return CompletionProvider.completions.libraryFunc[func_name];
+						let libraryItems = CompletionProvider.completions.libraryFunc[func_name];
+
+						// The same table may also be declared/extended locally: merge in
+						// what the static analyzer found instead of shadowing it.
+						let tokenItems = CompletionProvider.GLua.TokenIntellisenseProvider.provideGlobalTableCompletionItems(CompletionProvider.GLua.TokenIntellisenseProvider, func_name, func_call);
+						if (tokenItems && tokenItems.items && tokenItems.items.length > 0) {
+							let known = new Set(libraryItems.items.map((item) => String(item.insertText ? item.insertText : item.label)));
+							let extra = tokenItems.items.filter((item) => !known.has(String(item.insertText ? item.insertText : item.label)));
+							if (extra.length > 0) {
+								return new vscode.CompletionList(libraryItems.items.concat(extra), false);
+							}
+						}
+
+						return libraryItems;
 					} else if (func_ctx == "function") {
 						return CompletionProvider.completions.metaFunc;
 					} else {

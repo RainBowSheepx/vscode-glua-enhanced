@@ -123,6 +123,11 @@ class CustomWikiProvider {
 	mergeInto(wiki) {
 		if (!this.dump) return;
 
+		// Entries from a previously applied dump that are gone from the current
+		// one (pages deleted on the wiki) must be removed, or they linger in
+		// autocomplete until VS Code restarts.
+		if (this.lastApplied && this.lastApplied !== this.dump) this.unmergeInto(wiki, this.lastApplied);
+
 		for (const bucket of ["GLOBALS", "ENUMS"]) {
 			if (!this.dump[bucket]) continue;
 			if (!wiki[bucket]) wiki[bucket] = {};
@@ -138,6 +143,42 @@ class CustomWikiProvider {
 				this.mergeMembers(wiki[bucket], name, def);
 			}
 		}
+
+		this.lastApplied = this.dump;
+	}
+
+	/** Removes everything a previously merged dump contributed to `wiki`. */
+	unmergeInto(wiki, prev) {
+		for (const bucket of ["GLOBALS", "ENUMS"]) {
+			if (!prev[bucket] || !wiki[bucket]) continue;
+			for (const name of Object.keys(prev[bucket])) delete wiki[bucket][name];
+		}
+
+		for (const bucket of ["CLASSES", "LIBRARIES", "HOOKS", "PANELS", "STRUCTS"]) {
+			if (!prev[bucket] || !wiki[bucket]) continue;
+			for (const [name, def] of Object.entries(prev[bucket])) {
+				this.unmergeMembers(wiki[bucket], name, def);
+			}
+		}
+	}
+
+	unmergeMembers(target, name, def) {
+		if (!target || !(name in target)) return;
+
+		if (!def.MEMBERS || !target[name].MEMBERS) {
+			delete target[name];
+			return;
+		}
+
+		const existing = target[name];
+		for (const [memberName, memberDef] of Object.entries(def.MEMBERS)) {
+			if (memberDef && memberDef.MEMBERS) this.unmergeMembers(existing.MEMBERS, memberName, memberDef);
+			else delete existing.MEMBERS[memberName];
+		}
+
+		// A container that only existed for the overlay's members disappears
+		// with them (base-wiki containers always keep their own members).
+		if (Object.keys(existing.MEMBERS).length === 0) delete target[name];
 	}
 
 	mergeMembers(target, name, def) {
