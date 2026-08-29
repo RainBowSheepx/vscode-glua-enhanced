@@ -91,6 +91,7 @@ class CompletionProvider {
 			metaFunc: new vscode.CompletionList(),                    // meta:Functions() only, but also include hooks here
 			hook: new vscode.CompletionList(),                        // hooks only
 			hookAdd: new vscode.CompletionList(),                     // hooks listenable via hook.Add (GM + custom HOOK_ADD families)
+			hookAddFamilies: [],                                      // hook family names whose members are hook.Add-able
 			customEventFunc: {},                                      // event-name completions inside custom RunEvent-style calls
 			enumFamily: {},                                           // enum autocompletion during function signature
 			enumFamilySub: {},                                        // enum autocompletion when typing ENUM.<sub>
@@ -752,6 +753,7 @@ class CompletionProvider {
 						// GM hooks and custom addon event families (flagged HOOK_ADD,
 						// e.g. from a custom wiki) are listenable via hook.Add
 						let add_to_hook_add = !add_to_meta || ("HOOK_ADD" in hook_family_def);
+						if (add_to_hook_add) this.completions.hookAddFamilies.push(hook_family);
 						if (add_to_meta && !(hook_family in this.completions.metaFunc)) this.completions.metaFunc[hook_family] = {};
 						for (const [hook_name, hook_def] of Object.entries(hook_family_def["MEMBERS"])) {
 							let completionItem = this.createCompletionItem(

@@ -142,14 +142,25 @@ class SignatureProvider {
 					// Show libraries
 					if (full_call in signatureProvider.functions) {
 						if (callback && full_call == "hook.Add" && func[1][0] === "\"") {
-							let hookDocTag = "GM:" + func[1].substr(1, func[1].length - 2);
-							if (hookDocTag in signatureProvider.metaFunctions) {
-								const hasSelf = func[2][0] !== "\"";
-								this.pushSignatures(hasSelf, activeCallbackParameter, signatures, signatureProvider.metaFunctions[hookDocTag]);
-								continue;
+							// The hook may belong to GM or to any custom hook.Add-able
+							// family from a custom wiki (e.g. addon events)
+							let hookName = func[1].substr(1, func[1].length - 2);
+							let hookFamilies = this.GLua.CompletionProvider.completions.hookAddFamilies;
+							if (!hookFamilies || hookFamilies.length === 0) hookFamilies = ["GM"];
+
+							let foundHook = false;
+							for (let f = 0; f < hookFamilies.length; f++) {
+								let hookDocTag = hookFamilies[f] + ":" + hookName;
+								if (hookDocTag in signatureProvider.metaFunctions) {
+									const hasSelf = func[2][0] !== "\"";
+									this.pushSignatures(hasSelf, activeCallbackParameter, signatures, signatureProvider.metaFunctions[hookDocTag]);
+									foundHook = true;
+									break;
+								}
 							}
+							if (foundHook) continue;
 						}
-						
+
 						this.pushSignatures(false, activeParameter, signatures, signatureProvider.functions[full_call], callback, activeCallbackParameter);
 						continue;
 					}
