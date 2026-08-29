@@ -155,18 +155,22 @@ class SignatureProvider {
 									const hasSelf = func[2][0] !== "\"";
 									let hookDefs = signatureProvider.metaFunctions[hookDocTag];
 
-									let pushedBefore = signatures.length;
-									this.pushSignatures(hasSelf, activeCallbackParameter, signatures, hookDefs);
+									// The callback hint shows the hook's FULL documentation
+									// (description included), not the compact name-only form
+									let defs = Array.isArray(hookDefs) ? hookDefs : [hookDefs];
+									for (let d = 0; d < defs.length; d++) {
+										let docs = defs[d];
+										let fullDoc = "SEARCH" in docs ? this.GLua.WikiProvider.resolveDocumentation(docs, docs["SEARCH"]) : undefined;
 
-									if (signatures.length === pushedBefore) {
-										// Argument-less hook (e.g. Initialize): pushSignature skips
-										// docs without ARGUMENTS, but the hint is still valuable
-										let defs = Array.isArray(hookDefs) ? hookDefs : [hookDefs];
-										for (let d = 0; d < defs.length; d++) {
-											let docs = defs[d];
+										let pushedBefore = signatures.length;
+										this.pushSignature(hasSelf, activeCallbackParameter, signatures, docs, undefined, undefined, fullDoc);
+
+										if (signatures.length === pushedBefore) {
+											// Argument-less hook (e.g. Initialize, Trolleybus_System.PostInit):
+											// pushSignature skips docs without ARGUMENTS, build the hint manually
 											let sigInfo = new vscode.SignatureInformation(
 												this.generateSignatureString(hasSelf ? [{NAME: "self"}] : []),
-												"SEARCH" in docs ? this.GLua.WikiProvider.resolveDocumentation(docs, docs["SEARCH"], true) : undefined
+												fullDoc
 											);
 											sigInfo.activeParameter = 0;
 											if (hasSelf) sigInfo.parameters.push(new vscode.ParameterInformation(this.generateTypeSignature({NAME: "self"})));
