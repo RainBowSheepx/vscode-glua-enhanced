@@ -89,6 +89,7 @@ class CompletionProvider {
 			functionDecl: new vscode.CompletionList(undefined, true), // Structs and hook families only
 			metaFunc: new vscode.CompletionList(),                    // meta:Functions() only, but also include hooks here
 			hook: new vscode.CompletionList(),                        // hooks only
+			hookAdd: new vscode.CompletionList(),                     // hooks listenable via hook.Add (GM + custom HOOK_ADD families)
 			enumFamily: {},                                           // enum autocompletion during function signature
 			enumFamilySub: {},                                        // enum autocompletion when typing ENUM.<sub>
 			libraryFunc: {},                                          // library.functions() only
@@ -277,7 +278,8 @@ class CompletionProvider {
 			if (hook_completions[1] == "Call") {
 				return CompletionProvider.completions.hook;
 			} else {
-				return CompletionProvider.completions.hook["GM"];
+				// GM hooks + custom hook.Add-able event families (HOOK_ADD)
+				return CompletionProvider.completions.hookAdd;
 			}
 		}
 	}
@@ -725,6 +727,9 @@ class CompletionProvider {
 						this.completions.hook[hook_family] = new vscode.CompletionList();
 
 						let add_to_meta = hook_family != "GM" && hook_family != "GAMEMODE";
+						// GM hooks and custom addon event families (flagged HOOK_ADD,
+						// e.g. from a custom wiki) are listenable via hook.Add
+						let add_to_hook_add = !add_to_meta || ("HOOK_ADD" in hook_family_def);
 						if (add_to_meta && !(hook_family in this.completions.metaFunc)) this.completions.metaFunc[hook_family] = {};
 						for (const [hook_name, hook_def] of Object.entries(hook_family_def["MEMBERS"])) {
 							let completionItem = this.createCompletionItem(
@@ -735,6 +740,7 @@ class CompletionProvider {
 								hook_family + ":" + hook_name
 							);
 							if (add_to_meta) this.completions.metaFunc.items.push(completionItem);
+							if (add_to_hook_add) this.completions.hookAdd.items.push(completionItem);
 							this.completions.hook[hook_family].items.push(completionItem);
 							this.completions.hook.items.push(completionItem);
 						}
