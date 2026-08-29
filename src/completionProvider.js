@@ -93,6 +93,7 @@ class CompletionProvider {
 			hookAdd: new vscode.CompletionList(),                     // hooks listenable via hook.Add (GM + custom HOOK_ADD families)
 			hookAddFamilies: [],                                      // hook family names whose members are hook.Add-able
 			customEventFunc: {},                                      // event-name completions inside custom RunEvent-style calls
+			customEventDispatchers: {},                               // dispatcher func -> {family, prefix, changeSuffix} for signature help
 			enumFamily: {},                                           // enum autocompletion during function signature
 			enumFamilySub: {},                                        // enum autocompletion when typing ENUM.<sub>
 			libraryFunc: {},                                          // library.functions() only
@@ -796,10 +797,16 @@ class CompletionProvider {
 							}
 
 							if ("RUN_EVENT_FUNCS" in hook_family_def) {
-								for (const func of hook_family_def["RUN_EVENT_FUNCS"]) this.completions.customEventFunc[func] = runEventList;
+								for (const func of hook_family_def["RUN_EVENT_FUNCS"]) {
+									this.completions.customEventFunc[func] = runEventList;
+									this.completions.customEventDispatchers[func] = { family: hook_family, prefix: event_prefix, changeSuffix: null };
+								}
 							}
 							if ("RUN_CHANGE_EVENT_FUNCS" in hook_family_def) {
-								for (const func of hook_family_def["RUN_CHANGE_EVENT_FUNCS"]) this.completions.customEventFunc[func] = runChangeEventList;
+								for (const func of hook_family_def["RUN_CHANGE_EVENT_FUNCS"]) {
+									this.completions.customEventFunc[func] = runChangeEventList;
+									this.completions.customEventDispatchers[func] = { family: hook_family, prefix: event_prefix, changeSuffix: change_suffix };
+								}
 							}
 						}
 

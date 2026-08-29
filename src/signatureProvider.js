@@ -139,6 +139,52 @@ class SignatureProvider {
 						continue;
 					}
 
+					// Custom event dispatchers (e.g. Trolleybus_System.RunEvent("Event", ...)):
+					// show the signature/docs of the hook the call fires
+					let dispatchers = this.GLua.CompletionProvider.completions.customEventDispatchers;
+					// Before the first comma the argument still lives in tokenized.token
+					// (relevant for argument-less events, which never get a comma)
+					let dispatcherFirstArg = func.length > 1 ? func[1] : tokenized.token;
+					if (dispatchers && full_call in dispatchers && dispatcherFirstArg && dispatcherFirstArg[0] === "\"") {
+						let dispatcher = dispatchers[full_call];
+						let eventName = dispatcherFirstArg.substr(1);
+						if (eventName.length > 0 && eventName[eventName.length - 1] === "\"") eventName = eventName.substr(0, eventName.length - 1);
+						let hookDocTag = dispatcher.family + ":" + dispatcher.prefix + eventName + (dispatcher.changeSuffix || "");
+
+						if (hookDocTag in signatureProvider.metaFunctions) {
+							let hookDefs = signatureProvider.metaFunctions[hookDocTag];
+							let defs = Array.isArray(hookDefs) ? hookDefs : [hookDefs];
+
+							for (let d = 0; d < defs.length; d++) {
+								let docs = defs[d];
+								let hookArgs = "ARGUMENTS" in docs ? docs["ARGUMENTS"] : [];
+
+								// The dispatcher prepends the event name; change-event
+								// dispatchers also take the old value before the new one
+								let params = [{ NAME: "event", TYPE: "string" }];
+								if (dispatcher.changeSuffix) {
+									let first = hookArgs.length > 0 ? hookArgs[0] : { NAME: "value", TYPE: "any" };
+									let firstName = "NAME" in first ? first["NAME"] : "value";
+									params.push({ NAME: "old" + firstName, TYPE: first["TYPE"] });
+									params.push({ NAME: firstName, TYPE: first["TYPE"] });
+									params = params.concat(hookArgs.slice(1));
+								} else {
+									params = params.concat(hookArgs);
+								}
+
+								let sigInfo = new vscode.SignatureInformation(
+									this.generateSignatureString(params),
+									"SEARCH" in docs ? this.GLua.WikiProvider.resolveDocumentation(docs, docs["SEARCH"]) : undefined
+								);
+								sigInfo.activeParameter = activeParameter;
+								for (let p = 0; p < params.length; p++) sigInfo.parameters.push(new vscode.ParameterInformation(this.generateTypeSignature(params[p])));
+								signatures.push(sigInfo);
+							}
+
+							continue;
+						}
+					}
+
 					// Show libraries
 					if (full_call in signatureProvider.functions) {
 						if (callback && full_call == "hook.Add" && func[1][0] === "\"") {
