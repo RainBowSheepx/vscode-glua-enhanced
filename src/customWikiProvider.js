@@ -102,7 +102,9 @@ class CustomWikiProvider {
 
 			return provider.fetchJSON(url + "/gluadump.json").then((data) => {
 				if (!data || !data.wiki) return;
-				if (data.version === provider.version && provider.applied) return;
+				// A forced refresh must re-apply even when the version string is
+				// unchanged: the cached copy may predate a dump-format change.
+				if (!force && data.version === provider.version && provider.applied) return;
 
 				provider.version = data.version;
 				provider.dump = data.wiki;
@@ -145,6 +147,14 @@ class CustomWikiProvider {
 		}
 
 		const existing = target[name];
+
+		// Update the container's own fields too (HOOK_ADD, EVENT_PREFIX,
+		// DESCRIPTION, ...) — merging only MEMBERS would keep a stale def
+		// from an older cached copy forever.
+		for (const [key, value] of Object.entries(def)) {
+			if (key !== "MEMBERS") existing[key] = value;
+		}
+
 		if (!existing.MEMBERS) existing.MEMBERS = {};
 		for (const [memberName, memberDef] of Object.entries(def.MEMBERS)) {
 			if (memberDef && memberDef.MEMBERS) this.mergeMembers(existing.MEMBERS, memberName, memberDef);

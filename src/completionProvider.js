@@ -10,6 +10,7 @@ const REGEXP_FUNC_COMPLETIONS = /(?<!\B|:|\.)(?:(function)\s+)?([A-Za-z_][A-Za-z
 const REGEXP_GLOBAL_COMPLETIONS = /^(?=([A-Za-z0-9_]*[A-Za-z_]))\1((?::|\.)(?:[A-Za-z0-9_]*[A-Za-z_])?)?(\s+noitcnuf\s+lacol)?/;
 const REGEXP_FUNC_DECL_COMPLETIONS = /^[\t\t\f\v]*(local +)?(?:function +([A-Za-z_][A-Za-z0-9_]*)?|(funct?i?o?n?))((?::|\.)(?:[A-Za-z_][A-Za-z0-9_]*)?)?$/;
 const REGEXP_HOOK_COMPLETIONS = /hook\.(Add|Remove|GetTable|Run|Call)\s*\((?:["']|\[=*\[)$/;
+const REGEXP_CUSTOM_EVENT_COMPLETIONS = /([A-Za-z_][A-Za-z0-9_.]*)\s*\(\s*(?:["']|\[=*\[)$/;
 const REGEXP_VGUI_CREATE = /vgui\.Create\(\s*(?:["']|\[=*\[)$/;
 const REGEXP_NET_MESSAGE = /net\.(?:Receive|Start)\(\s*(?:["']|\[=*\[)$/;
 const REGEXP_LUA_COMPLETIONS = /(?:(?:include|AddCSLuaFile|CompileFile)\s*\(\s*(?:["']|\[=*\[)(?:lua\/)?|lua\/)([^\s]+\/)?$/;
@@ -90,6 +91,7 @@ class CompletionProvider {
 			metaFunc: new vscode.CompletionList(),                    // meta:Functions() only, but also include hooks here
 			hook: new vscode.CompletionList(),                        // hooks only
 			hookAdd: new vscode.CompletionList(),                     // hooks listenable via hook.Add (GM + custom HOOK_ADD families)
+			customEventFunc: {},                                      // event-name completions inside custom RunEvent-style calls
 			enumFamily: {},                                           // enum autocompletion during function signature
 			enumFamilySub: {},                                        // enum autocompletion when typing ENUM.<sub>
 			libraryFunc: {},                                          // library.functions() only
@@ -281,6 +283,13 @@ class CompletionProvider {
 				// GM hooks + custom hook.Add-able event families (HOOK_ADD)
 				return CompletionProvider.completions.hookAdd;
 			}
+		}
+
+		// Custom event dispatchers declared by the (custom) wiki, e.g.
+		// Trolleybus_System.RunEvent(" / Trolleybus_System.RunChangeEvent("
+		let custom_event = term.match(REGEXP_CUSTOM_EVENT_COMPLETIONS);
+		if (custom_event && custom_event[1] in CompletionProvider.completions.customEventFunc) {
+			return CompletionProvider.completions.customEventFunc[custom_event[1]];
 		}
 	}
 
@@ -743,6 +752,40 @@ class CompletionProvider {
 							if (add_to_hook_add) this.completions.hookAdd.items.push(completionItem);
 							this.completions.hook[hook_family].items.push(completionItem);
 							this.completions.hook.items.push(completionItem);
+						}
+
+						// Event-name completions inside the addon's own dispatch calls
+						// (e.g. Trolleybus_System.RunEvent("<name>")): the hook family
+						// declares the wrapper functions and the prefix they prepend
+						// (plus the suffix change-event wrappers append).
+						let event_prefix = hook_family_def["EVENT_PREFIX"];
+						if (event_prefix && ("RUN_EVENT_FUNCS" in hook_family_def || "RUN_CHANGE_EVENT_FUNCS" in hook_family_def)) {
+							let change_suffix = hook_family_def["CHANGE_SUFFIX"] || "Changed";
+							let runEventList = new vscode.CompletionList();
+							let runChangeEventList = new vscode.CompletionList();
+
+							for (const [hook_name, hook_def] of Object.entries(hook_family_def["MEMBERS"])) {
+								if (!hook_name.startsWith(event_prefix)) continue;
+								let event_name = hook_name.substr(event_prefix.length);
+
+								let eventItem = this.createCompletionItem(undefined, event_name, vscode.CompletionItemKind.Event);
+								eventItem.DOC_TAG = "HOOK:" + hook_def["SEARCH"];
+								runEventList.items.push(eventItem);
+
+								if (event_name.endsWith(change_suffix) && event_name.length > change_suffix.length) {
+									let base_name = event_name.substr(0, event_name.length - change_suffix.length);
+									let changeItem = this.createCompletionItem(undefined, base_name, vscode.CompletionItemKind.Event);
+									changeItem.DOC_TAG = "HOOK:" + hook_def["SEARCH"];
+									runChangeEventList.items.push(changeItem);
+								}
+							}
+
+							if ("RUN_EVENT_FUNCS" in hook_family_def) {
+								for (const func of hook_family_def["RUN_EVENT_FUNCS"]) this.completions.customEventFunc[func] = runEventList;
+							}
+							if ("RUN_CHANGE_EVENT_FUNCS" in hook_family_def) {
+								for (const func of hook_family_def["RUN_CHANGE_EVENT_FUNCS"]) this.completions.customEventFunc[func] = runChangeEventList;
+							}
 						}
 
 						this.completions.functionDecl.items.push(this.createCompletionItem(
