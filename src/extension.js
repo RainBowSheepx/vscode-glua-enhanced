@@ -43,7 +43,12 @@ class GLua {
 		new WikiProvider(this);
 		new SignatureProvider(this);
 		new CompletionProvider(this);
-		new CustomWikiProvider(this);
+		try {
+			new CustomWikiProvider(this);
+		} catch (e) {
+			// The custom wiki integration must never break the core extension
+			console.error("vscode-glua: custom wiki provider failed to initialize:", e);
+		}
 		new ReferenceProvider(this);
 		new HoverProvider(this);
 		new ColorProvider(this);

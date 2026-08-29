@@ -85,30 +85,36 @@ class CustomWikiProvider {
 		});
 	}
 
-	async refresh(force) {
+	// NB: no async/await in this file — babel targets node 7, which would pull
+	// in regeneratorRuntime (not bundled) and crash the whole extension.
+	refresh(force) {
 		const { url } = this.config();
 		if (!url) return;
 
-		try {
-			if (!force && this.version) {
-				const check = await this.fetchJSON(url + "/gluadump.json?check=1");
-				if (check && check.version === this.version) return;
-			}
+		const provider = this;
 
-			const data = await this.fetchJSON(url + "/gluadump.json");
-			if (!data || !data.wiki) return;
-			if (data.version === this.version && this.applied) return;
+		const check = !force && this.version
+			? this.fetchJSON(url + "/gluadump.json?check=1").then((chk) => !chk || chk.version !== provider.version)
+			: Promise.resolve(true);
 
-			this.version = data.version;
-			this.dump = data.wiki;
-			this.GLua.extension.globalState.update("vscode-glua-custom-wiki-version", this.version);
-			this.GLua.extension.globalState.update("vscode-glua-custom-wiki-data", this.dump);
+		check.then((changed) => {
+			if (!changed) return;
 
-			this.apply();
-			console.log("vscode-glua: custom wiki ingested (version " + this.version + ")");
-		} catch (e) {
+			return provider.fetchJSON(url + "/gluadump.json").then((data) => {
+				if (!data || !data.wiki) return;
+				if (data.version === provider.version && provider.applied) return;
+
+				provider.version = data.version;
+				provider.dump = data.wiki;
+				provider.GLua.extension.globalState.update("vscode-glua-custom-wiki-version", provider.version);
+				provider.GLua.extension.globalState.update("vscode-glua-custom-wiki-data", provider.dump);
+
+				provider.apply();
+				console.log("vscode-glua: custom wiki ingested (version " + provider.version + ")");
+			});
+		}).catch((e) => {
 			console.warn("vscode-glua: custom wiki unavailable (" + e.message + ")");
-		}
+		});
 	}
 
 	/** Merges the custom dump into `wiki` (called again after base wiki downloads). */
