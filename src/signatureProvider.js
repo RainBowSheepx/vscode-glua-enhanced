@@ -153,7 +153,27 @@ class SignatureProvider {
 								let hookDocTag = hookFamilies[f] + ":" + hookName;
 								if (hookDocTag in signatureProvider.metaFunctions) {
 									const hasSelf = func[2][0] !== "\"";
-									this.pushSignatures(hasSelf, activeCallbackParameter, signatures, signatureProvider.metaFunctions[hookDocTag]);
+									let hookDefs = signatureProvider.metaFunctions[hookDocTag];
+
+									let pushedBefore = signatures.length;
+									this.pushSignatures(hasSelf, activeCallbackParameter, signatures, hookDefs);
+
+									if (signatures.length === pushedBefore) {
+										// Argument-less hook (e.g. Initialize): pushSignature skips
+										// docs without ARGUMENTS, but the hint is still valuable
+										let defs = Array.isArray(hookDefs) ? hookDefs : [hookDefs];
+										for (let d = 0; d < defs.length; d++) {
+											let docs = defs[d];
+											let sigInfo = new vscode.SignatureInformation(
+												this.generateSignatureString(hasSelf ? [{NAME: "self"}] : []),
+												"SEARCH" in docs ? this.GLua.WikiProvider.resolveDocumentation(docs, docs["SEARCH"], true) : undefined
+											);
+											sigInfo.activeParameter = 0;
+											if (hasSelf) sigInfo.parameters.push(new vscode.ParameterInformation(this.generateTypeSignature({NAME: "self"})));
+											signatures.push(sigInfo);
+										}
+									}
+
 									foundHook = true;
 									break;
 								}
