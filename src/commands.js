@@ -17,6 +17,7 @@ class Commands {
 		this.registerCommand(...require("./commands/findGlobals.js"));
 		this.registerCommand(...require("./commands/optimizeGlobals.js"));
 		this.registerCommand(...require("./commands/optimizeGlobalsWorkspace.js"));
+		this.registerCommand(...require("./commands/switchCustomWiki.js"));
 	}
 }
 

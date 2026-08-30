@@ -14,16 +14,31 @@ const https = require("https");
  * re-ingests automatically whenever pages change on the wiki.
  *
  * Settings:
- *   glua-enhanced.customWiki.url          base URL of the wiki ("" disables)
+ *   glua-enhanced.customWiki.url          base URL of the ACTIVE wiki ("" disables)
+ *   glua-enhanced.customWiki.urls         known wiki URLs for the switch command
  *   glua-enhanced.customWiki.pollSeconds  update-check interval (0 disables)
+ *
+ * Only one wiki is merged at a time; the "GLua Enhanced: Switch Custom Wiki"
+ * command changes customWiki.url and the provider swaps the overlays. Dumps
+ * are cached per URL, so switching back to a wiki works offline.
  */
+const KEY_DATA = "vscode-glua-custom-wiki-data:";
+const KEY_VERSION = "vscode-glua-custom-wiki-version:";
+
 class CustomWikiProvider {
 	constructor(GLua) {
 		this.GLua = GLua;
 		this.GLua.CustomWikiProvider = this;
 
-		this.dump = this.GLua.extension.globalState.get("vscode-glua-custom-wiki-data");
-		this.version = this.GLua.extension.globalState.get("vscode-glua-custom-wiki-version");
+		this.activeUrl = this.config().url;
+		this.loadCache(this.activeUrl);
+		if (!this.dump && this.activeUrl) {
+			// one-time migration of the pre-multi-wiki single-slot cache; it can
+			// only have belonged to the URL that was configured at startup
+			const gs = this.GLua.extension.globalState;
+			this.dump = gs.get("vscode-glua-custom-wiki-data");
+			this.version = this.dump ? gs.get("vscode-glua-custom-wiki-version") : undefined;
+		}
 
 		// Offline start: apply the cached copy immediately, then look for updates
 		if (this.dump) this.apply();
@@ -32,18 +47,57 @@ class CustomWikiProvider {
 		this.watch();
 		vscode.workspace.onDidChangeConfiguration((e) => {
 			if (e.affectsConfiguration("glua-enhanced.customWiki")) {
-				this.watch();
-				this.refresh(true);
+				const { url } = this.config();
+				if (url !== this.activeUrl) {
+					this.switchTo(url);
+				} else {
+					this.watch();
+					this.refresh(true);
+				}
 			}
 		});
 	}
 
 	config() {
 		const cfg = vscode.workspace.getConfiguration("glua-enhanced");
+		const url = (cfg.get("customWiki.url") || "").replace(/\/+$/, "");
+		const urls = (cfg.get("customWiki.urls") || [])
+			.map((u) => (u || "").replace(/\/+$/, ""))
+			.filter((u) => u.length > 0);
 		return {
-			url: (cfg.get("customWiki.url") || "").replace(/\/+$/, ""),
+			url,
+			urls,
 			pollSeconds: cfg.get("customWiki.pollSeconds", 60),
 		};
+	}
+
+	loadCache(url) {
+		const gs = this.GLua.extension.globalState;
+		this.dump = url ? gs.get(KEY_DATA + url) : undefined;
+		this.version = this.dump ? gs.get(KEY_VERSION + url) : undefined;
+	}
+
+	/** Makes `url` the active wiki: unmerges the old overlay, applies the new one's cache, fetches updates. */
+	switchTo(url) {
+		if (this.lastApplied && this.GLua.WikiProvider) {
+			this.unmergeInto(this.GLua.WikiProvider.wiki, this.lastApplied);
+			this.lastApplied = undefined;
+		}
+
+		this.activeUrl = url;
+		this.applied = false;
+		this.loadCache(url);
+
+		if (this.dump) {
+			this.apply();
+		} else if (this.GLua.WikiProvider && this.GLua.CompletionProvider) {
+			// rebuild completions/docs without the previous wiki's entries
+			for (let k in this.GLua.WikiProvider.docs) delete this.GLua.WikiProvider.docs[k];
+			this.GLua.CompletionProvider.createCompletionItems();
+		}
+
+		this.watch();
+		this.refresh(true);
 	}
 
 	watch() {
@@ -102,17 +156,20 @@ class CustomWikiProvider {
 
 			return provider.fetchJSON(url + "/gluadump.json").then((data) => {
 				if (!data || !data.wiki) return;
+				// The user may have switched wikis while this request was in
+				// flight — a stale response must not clobber the new overlay.
+				if (provider.activeUrl !== url) return;
 				// A forced refresh must re-apply even when the version string is
 				// unchanged: the cached copy may predate a dump-format change.
 				if (!force && data.version === provider.version && provider.applied) return;
 
 				provider.version = data.version;
 				provider.dump = data.wiki;
-				provider.GLua.extension.globalState.update("vscode-glua-custom-wiki-version", provider.version);
-				provider.GLua.extension.globalState.update("vscode-glua-custom-wiki-data", provider.dump);
+				provider.GLua.extension.globalState.update(KEY_VERSION + url, provider.version);
+				provider.GLua.extension.globalState.update(KEY_DATA + url, provider.dump);
 
 				provider.apply();
-				console.log("vscode-glua: custom wiki ingested (version " + provider.version + ")");
+				console.log("vscode-glua: custom wiki ingested (version " + provider.version + " from " + url + ")");
 			});
 		}).catch((e) => {
 			console.warn("vscode-glua: custom wiki unavailable (" + e.message + ")");
