@@ -9,10 +9,14 @@ const REGEXP_ENUM_COMPLETIONS = /((?:function|local)\s+)?(?<!\.|:)\b(([A-Z][A-Z_
 const REGEXP_FUNC_COMPLETIONS = /(?<!\B|:|\.)(?:(function)\s+)?([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*?)(?:(\.|:)(?:[A-Za-z_][A-Za-z0-9_]*)?)?$/;
 const REGEXP_GLOBAL_COMPLETIONS = /^(?=([A-Za-z0-9_]*[A-Za-z_]))\1((?::|\.)(?:[A-Za-z0-9_]*[A-Za-z_])?)?(\s+noitcnuf\s+lacol)?/;
 const REGEXP_FUNC_DECL_COMPLETIONS = /^[\t\t\f\v]*(local +)?(?:function +([A-Za-z_][A-Za-z0-9_]*)?|(funct?i?o?n?))((?::|\.)(?:[A-Za-z_][A-Za-z0-9_]*)?)?$/;
-const REGEXP_HOOK_COMPLETIONS = /hook\.(Add|Remove|GetTable|Run|Call)\s*\((?:["']|\[=*\[)$/;
-const REGEXP_CUSTOM_EVENT_COMPLETIONS = /([A-Za-z_][A-Za-z0-9_.]*)\s*\(\s*(?:["']|\[=*\[)$/;
-const REGEXP_VGUI_CREATE = /vgui\.Create\(\s*(?:["']|\[=*\[)$/;
-const REGEXP_NET_MESSAGE = /net\.(?:Receive|Start)\(\s*(?:["']|\[=*\[)$/;
+// NB: these tolerate a partially typed name after the quote — VS Code re-queries
+// the provider on every keystroke inside strings, so anchoring right after the
+// quote would make the suggestions vanish as soon as you start typing
+const REGEXP_HOOK_COMPLETIONS = /hook\.(Add|Remove|GetTable|Run|Call)\s*\((?:["']|\[=*\[)[\w.]*$/;
+const REGEXP_CUSTOM_EVENT_COMPLETIONS = /([A-Za-z_][A-Za-z0-9_.]*)\s*\(\s*(?:["']|\[=*\[)[\w.]*$/;
+const REGEXP_VGUI_CREATE = /vgui\.Create\(\s*(?:["']|\[=*\[)[\w.]*$/;
+const REGEXP_NET_MESSAGE = /net\.(?:Receive|Start)\(\s*(?:["']|\[=*\[)[\w.]*$/;
+const REGEXP_VGUI_ASSIGNMENT_NAME = /vgui\s*\.\s*Create\s*\(\s*["']([\w_]+)["']/;
 const REGEXP_LUA_COMPLETIONS = /(?:(?:include|AddCSLuaFile|CompileFile)\s*\(\s*(?:["']|\[=*\[)(?:lua\/)?|lua\/)([^\s]+\/)?$/;
 const REGEXP_MATERIAL_COMPLETIONS = /\b(?:(?:(?:(?::|\.)(?:SetImage|SetMaterial))|Material|surface\.GetTextureID)\s*\(\s*(?:["']|\[=*\[)(?:materials\/)?|materials\/)([^\s]+\/)?$/;
 const REGEXP_SOUND_COMPLETIONS = /\b(?:(?:(?:(?::|\.)(?:EmitSound|StopSound|StartLoopingSound))|Sound|SoundDuration|sound\.Play(?:File)?|surface\.PlaySound|util\.PrecacheSound)\s*\(\s*(?:["']|\[=*\[)(?:sound\/)?|sound\/)([^\s]+\/)?/;
@@ -94,6 +98,8 @@ class CompletionProvider {
 			hookAddFamilies: [],                                      // hook family names whose members are hook.Add-able
 			customEventFunc: {},                                      // event-name completions inside custom RunEvent-style calls
 			customEventDispatchers: {},                               // dispatcher func -> {family, prefix, changeSuffix} for signature help
+			panelMeta: {},                                            // panel name -> { parent, items } for vgui.Create variable resolution
+			classMeta: {},                                            // class name -> items (inheritance chain fallback, e.g. Panel)
 			enumFamily: {},                                           // enum autocompletion during function signature
 			enumFamilySub: {},                                        // enum autocompletion when typing ENUM.<sub>
 			libraryFunc: {},                                          // library.functions() only
@@ -400,9 +406,86 @@ class CompletionProvider {
 			}
 
 			if (func_call === ":") {
+				// A variable assigned from vgui.Create("<panel>") gets the methods
+				// of that panel and its whole inheritance chain
+				let panelClass = CompletionProvider.resolveVguiVariable(document, pos, func_name);
+				if (panelClass) {
+					let panelItems = CompletionProvider.collectPanelMethods(panelClass);
+					if (panelItems) return panelItems;
+				}
+
 				return CompletionProvider.completions.metaFunc;
 			}
 		}
+	}
+
+	/**
+	 * Finds the panel class assigned to `varName` via `varName = vgui.Create("X")`
+	 * anywhere in the document (the last assignment before the cursor wins,
+	 * otherwise the last one in the file). Returns undefined when the variable
+	 * is not clearly a vgui.Create result of a known panel.
+	 */
+	resolveVguiVariable(document, pos, varName) {
+		if (!document || !varName || !varName.match(/^[A-Za-z_][A-Za-z0-9_]*$/)) return;
+
+		let text;
+		try {
+			text = document.getText();
+		} catch (e) {
+			return;
+		}
+
+		let cursorOffset = Infinity;
+		try {
+			if (pos && document.offsetAt) cursorOffset = document.offsetAt(pos);
+		} catch (e) {}
+
+		let assignRegex = new RegExp("(?:^|[^\\w.:])" + varName + "\\s*=\\s*" + REGEXP_VGUI_ASSIGNMENT_NAME.source, "g");
+
+		let beforeCursor, anywhere;
+		let match;
+		while ((match = assignRegex.exec(text))) {
+			anywhere = match[1];
+			if (match.index < cursorOffset) beforeCursor = match[1];
+		}
+
+		let panelClass = beforeCursor !== undefined ? beforeCursor : anywhere;
+		if (panelClass && (panelClass in this.completions.panelMeta || panelClass in this.completions.classMeta)) return panelClass;
+	}
+
+	/** Methods of a panel plus everything it inherits (PARENT chain, ending at a class like Panel). */
+	collectPanelMethods(panelClass) {
+		let items = [];
+		let known = new Set();
+		let seen = new Set();
+
+		let addItems = (list) => {
+			for (let i = 0; i < list.length; i++) {
+				let key = String(list[i].insertText ? list[i].insertText : list[i].label);
+				if (known.has(key)) continue; // children override parents
+				known.add(key);
+				items.push(list[i]);
+			}
+		};
+
+		let current = panelClass;
+		while (current && !seen.has(current)) {
+			seen.add(current);
+
+			if (current in this.completions.panelMeta) {
+				addItems(this.completions.panelMeta[current].items);
+				current = this.completions.panelMeta[current].parent;
+			} else if (current in this.completions.classMeta) {
+				// e.g. the Panel class at the root of every panel's chain
+				addItems(this.completions.classMeta[current]);
+				break;
+			} else {
+				break;
+			}
+		}
+
+		if (items.length === 0) return;
+		return new vscode.CompletionList(items, false);
 	}
 
 	provideFilePathCompletionItem(CompletionProvider, document, pos, cancel, ctx, term) {
@@ -875,15 +958,18 @@ class CompletionProvider {
 
 				case "CLASSES":
 					for (const [class_name, data] of Object.entries(entries)) {
+						this.completions.classMeta[class_name] = [];
 						for (const [func_name, func_def] of Object.entries(data["MEMBERS"])) {
 							func_def.METHOD = true;
-							this.completions.metaFunc.items.push(this.createCompletionItem(
+							let completionItem = this.createCompletionItem(
 								"META_FUNCTION",
 								func_name,
 								vscode.CompletionItemKind.Method,
 								func_def,
 								class_name + ":" + func_name
-							));
+							);
+							this.completions.metaFunc.items.push(completionItem);
+							this.completions.classMeta[class_name].push(completionItem);
 						}
 					}
 					break;
@@ -894,6 +980,8 @@ class CompletionProvider {
 						this.completions.panel.items.push(completionItem);
 						this.completions.global.items.push(completionItem);
 
+						this.completions.panelMeta[panel_name] = { parent: panel_def["PARENT"], items: [] };
+
 						if ("MEMBERS" in panel_def) {
 							if (!(panel_name in this.completions.libraryFunc)) {
 								this.completions.libraryFunc[panel_name] = new vscode.CompletionList();
@@ -901,13 +989,15 @@ class CompletionProvider {
 							for (const [panel_func, panel_func_def] of Object.entries(panel_def["MEMBERS"])) {
 								if (typeof panel_func_def !== "object") continue;
 								this.completions.libraryFunc[panel_name].items.push(this.createCompletionItem("PANEL_FUNCTION", panel_func, vscode.CompletionItemKind.Method, panel_func_def));
-								this.completions.metaFunc.items.push(this.createCompletionItem(
+								let metaItem = this.createCompletionItem(
 									"META_FUNCTION",
 									panel_func,
 									vscode.CompletionItemKind.Method,
 									panel_func_def,
 									panel_name + ":" + panel_func
-								));
+								);
+								this.completions.metaFunc.items.push(metaItem);
+								this.completions.panelMeta[panel_name].items.push(metaItem);
 							}
 						}
 					}
