@@ -9,13 +9,23 @@ class SignatureProvider {
 		this.GLua = GLua;
 		this.GLua.SignatureProvider = this;
 
+		this.resetSignatures();
+
+		this.registerSubscriptions();
+	}
+
+	/**
+	 * Clears the signature store. Called before every completion rebuild —
+	 * createCompletionItems re-registers every signature, and without the
+	 * reset each rebuild (base wiki download, custom wiki refresh) appended
+	 * duplicate entries to the by-name arrays.
+	 */
+	resetSignatures() {
 		this.signatures = {
 			globals: {},
 			functions: {},
 			metaFunctions: {},
 		};
-
-		this.registerSubscriptions();
 	}
 
 	registerSubscriptions() {
@@ -235,6 +245,20 @@ class SignatureProvider {
 						continue;
 					}
 					
+					// A variable with a known panel type (assigned from
+					// vgui.Create) gets only ITS method's signature, not every
+					// same-named method of every class
+					if (i === 0 && func_call === ":") {
+						let panelClass = this.GLua.CompletionProvider.resolveVguiVariable(document, pos, library_or_meta);
+						if (panelClass) {
+							let scopedDef = this.GLua.CompletionProvider.findPanelMethodDef(panelClass, meta_func);
+							if (scopedDef) {
+								this.pushSignatures(false, activeParameter, signatures, scopedDef, callback, activeCallbackParameter);
+								continue;
+							}
+						}
+					}
+
 					// Show meta functions
 					if (meta_func in signatureProvider.metaFunctions) {
 						this.pushSignatures(false, activeParameter, signatures, signatureProvider.metaFunctions[meta_func], callback, activeCallbackParameter);

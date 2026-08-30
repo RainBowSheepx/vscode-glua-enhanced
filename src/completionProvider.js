@@ -89,6 +89,10 @@ class CompletionProvider {
 	}
 
 	createCompletionItems() {
+		// Signatures are re-registered below; the old set must go first or
+		// every rebuild duplicates the by-name signature arrays
+		if (this.GLua.SignatureProvider) this.GLua.SignatureProvider.resetSignatures();
+
 		this.completions = {
 			generic: new vscode.CompletionList(undefined, true),      // contains enums, globals, libraries, panels
 			genericFunc: new vscode.CompletionList(undefined, true),  // contains globals + meta functions
@@ -455,6 +459,32 @@ class CompletionProvider {
 
 		let panelClass = beforeCursor !== undefined ? beforeCursor : anywhere;
 		if (panelClass && (panelClass in this.completions.panelMeta || panelClass in this.completions.classMeta)) return panelClass;
+	}
+
+	/**
+	 * The wiki definition of `methodName` for a panel class, walking its
+	 * inheritance chain (nearest override wins). Used to scope signature help
+	 * when the variable's panel type is known.
+	 */
+	findPanelMethodDef(panelClass, methodName) {
+		let wiki = this.GLua.WikiProvider.wiki;
+		let seen = new Set();
+		let current = panelClass;
+
+		while (current && !seen.has(current)) {
+			seen.add(current);
+
+			let panelDef = wiki.PANELS && wiki.PANELS[current];
+			if (panelDef) {
+				if (panelDef.MEMBERS && methodName in panelDef.MEMBERS) return panelDef.MEMBERS[methodName];
+				current = panelDef.PARENT;
+				continue;
+			}
+
+			let classDef = wiki.CLASSES && wiki.CLASSES[current];
+			if (classDef && classDef.MEMBERS && methodName in classDef.MEMBERS) return classDef.MEMBERS[methodName];
+			break;
+		}
 	}
 
 	/**
