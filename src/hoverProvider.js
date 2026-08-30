@@ -84,14 +84,32 @@ class HoverProvider {
 				case HOVER_GENERIC:
 					let callExpression = token.type === "CallExpression" ? token : (token.parent.type === "CallExpression" ? token.parent : undefined);
 					if (callExpression) {
-						if ("DOC" in callExpression) this.pushWikiHovers(hovers, callExpression["DOC"]);
+						// A variable with a known vgui.Create type hovers only ITS
+						// method (walking the inheritance chain) instead of every
+						// same-named method of every class
+						let scopedHover = false;
+						if (full_call.length === 3 && full_call[1] === ":" && typeof full_call[0] === "string") {
+							let panelClass = this.GLua.CompletionProvider.resolveVguiVariable(document, pos, full_call[0]);
+							if (panelClass) {
+								let scopedDef = this.GLua.CompletionProvider.findPanelMethodDef(panelClass, full_call[2]);
+								if (scopedDef) {
+									range = TokenAnalyzer.getTokenRange("identifier" in callExpression ? callExpression.identifier : (callExpression.base.type !== "Identifier" ? callExpression.base.identifier : callExpression.base));
+									this.pushWikiHovers(hovers, [scopedDef]);
+									scopedHover = true;
+								}
+							}
+						}
 
-						if (full_call.length >= 2 && full_call[full_call.length-2] === ":") {
-							range = TokenAnalyzer.getTokenRange("identifier" in callExpression ? callExpression.identifier : (callExpression.base.type !== "Identifier" ? callExpression.base.identifier : callExpression.base));
+						if (!scopedHover) {
+							if ("DOC" in callExpression) this.pushWikiHovers(hovers, callExpression["DOC"]);
 
-							let meta_func = full_call[full_call.length-1];
-							if (meta_func in this.GLua.TokenIntellisenseProvider.compiledTokenData.signatures.metaFunctions) {
-								this.pushWikiHovers(hovers, this.GLua.TokenIntellisenseProvider.compiledTokenData.signatures.metaFunctions[meta_func]);
+							if (full_call.length >= 2 && full_call[full_call.length-2] === ":") {
+								range = TokenAnalyzer.getTokenRange("identifier" in callExpression ? callExpression.identifier : (callExpression.base.type !== "Identifier" ? callExpression.base.identifier : callExpression.base));
+
+								let meta_func = full_call[full_call.length-1];
+								if (meta_func in this.GLua.TokenIntellisenseProvider.compiledTokenData.signatures.metaFunctions) {
+									this.pushWikiHovers(hovers, this.GLua.TokenIntellisenseProvider.compiledTokenData.signatures.metaFunctions[meta_func]);
+								}
 							}
 						}
 					}
