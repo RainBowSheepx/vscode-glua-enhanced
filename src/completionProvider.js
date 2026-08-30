@@ -35,7 +35,11 @@ class CompletionProvider {
 	}
 
 	static registerCompletionProvider(provider, GLua, func, allowInStrings, ...triggerCharacters) {
-		let triggerCharacterRegex = triggerCharacters.length > 0 ? new RegExp(triggerCharacters.map(char => "\\" + char).join("") + "$") : undefined;
+		// A character class (upstream concatenated the chars into one literal
+		// sequence), plus a partially typed word: VS Code re-queries providers
+		// while typing after the trigger char, and the old anchor made every
+		// suggestion list vanish on the first typed letter (e.g. vgui.Create("D)
+		let triggerCharacterRegex = triggerCharacters.length > 0 ? new RegExp("[" + triggerCharacters.map(char => "\\" + char).join("") + "][\\w./]*$") : undefined;
 		GLua.extension.subscriptions.push(vscode.languages.registerCompletionItemProvider("glua", {
 			resolveCompletionItem(item) { return GLua.WikiProvider.resolveCompletionItem(item) },
 			provideCompletionItems(document, pos, cancel, ctx) {
@@ -453,19 +457,31 @@ class CompletionProvider {
 		if (panelClass && (panelClass in this.completions.panelMeta || panelClass in this.completions.classMeta)) return panelClass;
 	}
 
-	/** Methods of a panel plus everything it inherits (PARENT chain, ending at a class like Panel). */
+	/**
+	 * Methods of a panel plus everything it inherits (PARENT chain, ending at
+	 * a class like Panel). Items are cloned with a depth-prefixed sortText so
+	 * the panel's own methods sort first, then each ancestor's in chain order.
+	 */
 	collectPanelMethods(panelClass) {
 		let items = [];
 		let known = new Set();
 		let seen = new Set();
+		let depth = 0;
 
 		let addItems = (list) => {
+			let depthPrefix = (depth < 10 ? "0" : "") + depth + "!";
 			for (let i = 0; i < list.length; i++) {
 				let key = String(list[i].insertText ? list[i].insertText : list[i].label);
 				if (known.has(key)) continue; // children override parents
 				known.add(key);
-				items.push(list[i]);
+
+				// Clone: the same items live in the global metaFunc list, whose
+				// sort order must stay untouched
+				let item = Object.create(list[i]);
+				item.sortText = depthPrefix + key;
+				items.push(item);
 			}
+			depth++;
 		};
 
 		let current = panelClass;
