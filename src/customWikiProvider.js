@@ -195,9 +195,57 @@ class CustomWikiProvider {
 				if (!json || typeof json.html !== "string") return doc;
 				const md = CustomWikiProvider.descriptionMarkdown(json.html, url) || (json.description ? String(json.description).trim() : "");
 				if (md) doc.DESCRIPTION = md;
+				// fields document their value type in a Returns section, which the
+				// data set lacks as well
+				if (!("RETURNS" in doc)) {
+					const returns = CustomWikiProvider.returnsFromHtml(json.html, url);
+					if (returns.length > 0) doc.RETURNS = returns;
+				}
 				return doc;
 			})
 			.catch(() => doc);
+	}
+
+	/** The balanced inner HTML of the first element whose opening tag contains `marker`, or "". */
+	static sectionInner(html, marker) {
+		const start = html.indexOf(marker);
+		if (start < 0) return "";
+		const tagRe = /<\/?div\b[^>]*>/g;
+		tagRe.lastIndex = start;
+		let depth = 0;
+		let m;
+		while ((m = tagRe.exec(html))) {
+			if (m[0].charAt(1) === "/") {
+				depth--;
+				if (depth === 0) return html.substring(html.indexOf(">", start) + 1, m.index);
+			} else {
+				depth++;
+			}
+		}
+		return "";
+	}
+
+	/**
+	 * The page's Returns section as wiki-data RETURNS entries: each
+	 * `<div><span class="numbertag">N</span> <a>type</a> <span class="name">n</span><div class="numbertagindent">desc</div></div>`
+	 */
+	static returnsFromHtml(html, origin) {
+		const section = CustomWikiProvider.sectionInner(html, '<div class="function_returns');
+		if (!section) return [];
+		const returns = [];
+		const chunks = section.split(/<span class="numbertag">\d+<\/span>/).slice(1);
+		for (let i = 0; i < chunks.length; i++) {
+			const chunk = chunks[i];
+			const typeMatch = /^\s*(?:<a[^>]*>([^<]*)<\/a>|([\w.]+))/.exec(chunk);
+			if (!typeMatch) continue;
+			const entry = { TYPE: typeMatch[1] || typeMatch[2] };
+			const nameMatch = /<span class="name">([^<]*)<\/span>/.exec(chunk);
+			if (nameMatch && nameMatch[1].trim()) entry.NAME = nameMatch[1].trim();
+			const desc = CustomWikiProvider.htmlToMarkdown(CustomWikiProvider.sectionInner(chunk, '<div class="numbertagindent"'), origin);
+			if (desc) entry.DESCRIPTION = desc;
+			returns.push(entry);
+		}
+		return returns;
 	}
 
 	/** Official entry (relative LINK) without a description that was not looked up yet. */
