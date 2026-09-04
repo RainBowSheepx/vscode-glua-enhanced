@@ -58,10 +58,16 @@ class HoverProvider {
 		for (let i = 0; i < docs.length; i++) {
 			let doc = docs[i];
 
+			// Fields (library/global values like BRANCH or math.pi) carry no
+			// FUNCTION/EVENT flag in the wiki data: show them without call parens.
+			// Only wiki docs (they always have LINK) — locally parsed functions
+			// carry none of these flags either.
+			const isField = ("LINK" in doc) && !doc["FUNCTION"] && !doc["EVENT"] && !doc["METHOD"] && !("ARGUMENTS" in doc);
 			const markdown =
 				(doc["EVENT"] ? "(hook) " : "") +
 				(doc["METHOD"] ? "(method) " : "") +
 				(doc["TAG"] === "ENUM" ? ("(enum) " + doc["SEARCH"]) :
+					isField ? ("(field) " + doc["SEARCH"]) :
 					(doc["SEARCH"] + "(" +
 						("ARGUMENTS" in doc ? this.GLua.SignatureProvider.generateSignatureString(doc["ARGUMENTS"]) : "")
 					+ ")")
