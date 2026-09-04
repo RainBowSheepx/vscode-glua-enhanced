@@ -176,6 +176,75 @@ class CustomWikiProvider {
 		});
 	}
 
+	/**
+	 * Fills in DESCRIPTION for an official-wiki entry that ships without one
+	 * (the upstream data set has fields like BRANCH or math.pi bare) from the
+	 * mirror's page content (/content/<page>.json): the page's Description
+	 * section converted to markdown. Cached on the doc; resolves to the doc
+	 * either way, so callers can simply re-render afterwards.
+	 */
+	fetchOfficialDoc(doc) {
+		if (!CustomWikiProvider.needsDescription(doc)) return Promise.resolve(doc);
+		const { url } = this.config();
+		if (!url) return Promise.resolve(doc);
+
+		const page = doc.LINK.replace(/#.*$/, "").toLowerCase();
+		return this.fetchJSON(url + "/content/" + encodeURIComponent(page) + ".json")
+			.then((json) => {
+				doc._descFetched = true;
+				if (!json || typeof json.html !== "string") return doc;
+				const md = CustomWikiProvider.descriptionMarkdown(json.html, url) || (json.description ? String(json.description).trim() : "");
+				if (md) doc.DESCRIPTION = md;
+				return doc;
+			})
+			.catch(() => doc);
+	}
+
+	/** Official entry (relative LINK) without a description that was not looked up yet. */
+	static needsDescription(doc) {
+		return !!doc && !doc.DESCRIPTION && !doc._descFetched && typeof doc.LINK === "string" && !/^https?:\/\//.test(doc.LINK);
+	}
+
+	/** The page's Description section (balanced <div> scan — it nests note boxes) as markdown. */
+	static descriptionMarkdown(html, origin) {
+		const start = html.indexOf('<div class="description_section');
+		if (start < 0) return "";
+		const tagRe = /<\/?div\b[^>]*>/g;
+		tagRe.lastIndex = start;
+		let depth = 0;
+		let end = -1;
+		let m;
+		while ((m = tagRe.exec(html))) {
+			if (m[0].charAt(1) === "/") {
+				depth--;
+				if (depth === 0) { end = m.index; break; }
+			} else {
+				depth++;
+			}
+		}
+		if (end < 0) return "";
+		return CustomWikiProvider.htmlToMarkdown(html.substring(html.indexOf(">", start) + 1, end), origin);
+	}
+
+	/** Light HTML → markdown for wiki page fragments (links, code, emphasis, lists, notice boxes). */
+	static htmlToMarkdown(html, origin) {
+		let s = html;
+		s = s.replace(/<div class="(note|warning|bug|deprecated|internal)">\s*<div class="inner">/gi, (m, kind) => "\n\n**" + kind.toUpperCase() + ":** ");
+		s = s.replace(/<a[^>]*href="([^"]*)"[^>]*>([\s\S]*?)<\/a>/gi, (m, href, text) => {
+			const link = /^https?:\/\//.test(href) ? href : origin + (href.charAt(0) === "/" ? "" : "/") + href;
+			return "[" + text.replace(/<[^>]+>/g, "") + "](" + link + ")";
+		});
+		s = s.replace(/<code[^>]*>([\s\S]*?)<\/code>/gi, (m, t) => "`" + t.replace(/<[^>]+>/g, "") + "`");
+		s = s.replace(/<(strong|b)>([\s\S]*?)<\/\1>/gi, "**$2**");
+		s = s.replace(/<(em|i)>([\s\S]*?)<\/\1>/gi, "*$2*");
+		s = s.replace(/<li[^>]*>/gi, "\n- ");
+		s = s.replace(/<br\s*\/?>/gi, "\n");
+		s = s.replace(/<\/(p|div|li|ul|ol|h\d)>/gi, "\n");
+		s = s.replace(/<[^>]+>/g, "");
+		s = s.replace(/&nbsp;/g, " ").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, "&");
+		return s.replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
+	}
+
 	/** Merges the custom dump into `wiki` (called again after base wiki downloads). */
 	mergeInto(wiki) {
 		if (!this.dump) return;

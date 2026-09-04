@@ -312,6 +312,13 @@ class WikiProvider {
 				return this.GLua.VMTProvider.provideVMT(cancel, item, doc["VMT"]);
 			}
 
+			// Official entries without a description (fields like BRANCH): fetch
+			// it from the mirror first, then resolve again with it in place
+			const custom = this.GLua.CustomWikiProvider;
+			if (custom && custom.constructor.needsDescription(doc)) {
+				return custom.fetchOfficialDoc(doc).then(() => this.resolveCompletionItem(item, cancel));
+			}
+
 			item.documentation = this.resolveDocumentation(doc, item.label);
 
 			if (doc["TAG"] === "ENUM") {

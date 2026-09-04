@@ -102,6 +102,7 @@ class HoverProvider {
 	pushWikiHovers(hovers, docs) {
 		for (let i = 0; i < docs.length; i++) {
 			let doc = docs[i];
+			if (this.renderedDocs) this.renderedDocs.push(doc);
 
 			// Fields (library/global values like BRANCH or math.pi) carry no
 			// FUNCTION/EVENT flag in the wiki data: show them without call parens.
@@ -125,9 +126,24 @@ class HoverProvider {
 	}
 
 	provideWikiHover(HoverProvider, document, pos, cancel) {
+		let hover = HoverProvider.renderWikiHover(document, pos, cancel);
+
+		// Official fields/libraries ship without descriptions: fetch them from
+		// the mirror (cached on the doc), then render again with them filled in
+		const custom = HoverProvider.GLua.CustomWikiProvider;
+		let pending = custom ? HoverProvider.renderedDocs.filter((doc) => custom.constructor.needsDescription(doc)) : [];
+		if (!hover || pending.length === 0) return hover;
+
+		return Promise.all(pending.map((doc) => custom.fetchOfficialDoc(doc)))
+			.then(() => HoverProvider.renderWikiHover(document, pos, cancel) || hover)
+			.catch(() => hover);
+	}
+
+	renderWikiHover(document, pos, cancel) {
+		this.renderedDocs = [];
 		if (cancel.isCancellationRequested) return;
 
-		let [hover_type, full_call, range, token] = HoverProvider.getHoverCallExpression(document, pos);
+		let [hover_type, full_call, range, token] = this.getHoverCallExpression(document, pos);
 		if (token) {
 			let hovers = [];
 
