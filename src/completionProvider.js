@@ -428,10 +428,43 @@ class CompletionProvider {
 	}
 
 	/**
-	 * Finds the panel class assigned to `varName` via `varName = vgui.Create("X")`
-	 * anywhere in the document (the last assignment before the cursor wins,
-	 * otherwise the last one in the file). Returns undefined when the variable
-	 * is not clearly a vgui.Create result of a known panel.
+	 * Blanks out comments and string literals (keeping the length and line
+	 * structure), so block keywords inside them don't confuse the scope walk.
+	 */
+	static blankLuaNoise(text) {
+		return text
+			.replace(/--\[(=*)\[[\s\S]*?\]\1\]/g, (m) => m.replace(/[^\n]/g, " "))
+			.replace(/--[^\n]*/g, (m) => " ".repeat(m.length))
+			.replace(/\[(=*)\[[\s\S]*?\]\1\]/g, (m) => m.replace(/[^\n]/g, " "))
+			.replace(/"(?:\\.|[^"\\\n])*"|'(?:\\.|[^'\\\n])*'/g, (m) => " ".repeat(m.length));
+	}
+
+	/**
+	 * Whether a `local` declared at `declOffset` is still in scope at
+	 * `cursorOffset`: walks the block keywords in between and reports false
+	 * as soon as the declaration's enclosing block has been closed.
+	 * (`for`/`while` are neutral — their mandatory `do` carries the +1.)
+	 */
+	static localStillInScope(cleanText, declOffset, cursorOffset) {
+		let between = cleanText.substring(declOffset, cursorOffset);
+		let depth = 0;
+		let re = /\b(function|elseif|repeat|until|end|do|if)\b/g;
+		let delta = { function: 1, do: 1, if: 1, repeat: 1, end: -1, until: -1, elseif: 0 };
+		let m;
+		while ((m = re.exec(between))) {
+			depth += delta[m[1]];
+			if (depth < 0) return false;
+		}
+		return true;
+	}
+
+	/**
+	 * Finds the panel class assigned to `varName` via `varName = vgui.Create("X")`.
+	 * The last assignment to the variable before the cursor decides: it must be
+	 * a vgui.Create of a known panel, and a `local` one must still be in scope
+	 * (a local from another function does not leak into this one). Without any
+	 * assignment before the cursor the last one in the file is used.
+	 * Returns undefined when the variable is not clearly such a panel.
 	 */
 	resolveVguiVariable(document, pos, varName) {
 		if (!document || !varName || !varName.match(/^[A-Za-z_][A-Za-z0-9_]*$/)) return;
@@ -448,17 +481,31 @@ class CompletionProvider {
 			if (pos && document.offsetAt) cursorOffset = document.offsetAt(pos);
 		} catch (e) {}
 
-		let assignRegex = new RegExp("(?:^|[^\\w.:])" + varName + "\\s*=\\s*" + REGEXP_VGUI_ASSIGNMENT_NAME.source, "g");
+		let clean = CompletionProvider.blankLuaNoise(text);
 
-		let beforeCursor, anywhere;
+		// Any assignment to the variable: `local name =`, `name =` (not `x.name =`
+		// or `name ==`); captures the `local` keyword and the assigned expression
+		let assignRegex = new RegExp("(?:^|[^\\w.:])(local\\s+)?" + varName + "\\s*=(?!=)\\s*([^\\n]*)", "g");
+
+		let lastBefore, lastAnywhere;
 		let match;
-		while ((match = assignRegex.exec(text))) {
-			anywhere = match[1];
-			if (match.index < cursorOffset) beforeCursor = match[1];
+		while ((match = assignRegex.exec(clean))) {
+			let vguiMatch = REGEXP_VGUI_ASSIGNMENT_NAME.exec(text.substring(match.index, match.index + match[0].length));
+			let info = {
+				offset: match.index,
+				isLocal: !!match[1],
+				panelClass: vguiMatch ? vguiMatch[1] : undefined,
+			};
+			lastAnywhere = info;
+			if (match.index < cursorOffset) lastBefore = info;
 		}
 
-		let panelClass = beforeCursor !== undefined ? beforeCursor : anywhere;
-		if (panelClass && (panelClass in this.completions.panelMeta || panelClass in this.completions.classMeta)) return panelClass;
+		let chosen = lastBefore || lastAnywhere;
+		if (!chosen || !chosen.panelClass) return;
+		if (chosen === lastBefore && chosen.isLocal && !CompletionProvider.localStillInScope(clean, chosen.offset, cursorOffset)) return;
+
+		let panelClass = chosen.panelClass;
+		if (panelClass in this.completions.panelMeta || panelClass in this.completions.classMeta) return panelClass;
 	}
 
 	/**

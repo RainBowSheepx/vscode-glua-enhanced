@@ -3,7 +3,7 @@
 	"displayName": "GLua Enhanced (Garry's Mod/Gmod Lua)",
 	"description": "GLua language support for Visual Studio Code",
 	"license": "GNU General Public License v3.0",
-	"version": "2.7.5",
+	"version": "2.7.6",
 	"engines": {
 		"vscode": "^0.10.1"
 	},
@@ -27,6 +27,15 @@
 		"onLanguage:glua"
 	],
 	"contributes": {
+		"configurationDefaults": {
+			"[glua]": {
+				"editor.quickSuggestions": {
+					"other": true,
+					"comments": false,
+					"strings": true
+				}
+			}
+		},
 		"configuration": {
 			"title": "GLua Enhanced",
 			"properties": {
