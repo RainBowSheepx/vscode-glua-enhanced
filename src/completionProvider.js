@@ -927,10 +927,14 @@ class CompletionProvider {
 					for (const [hook_family, hook_family_def] of Object.entries(entries)) {
 						this.completions.hook[hook_family] = new vscode.CompletionList();
 
-						let add_to_meta = hook_family != "GM" && hook_family != "GAMEMODE";
-						// GM hooks and custom addon event families (flagged HOOK_ADD,
-						// e.g. from a custom wiki) are listenable via hook.Add
-						let add_to_hook_add = !add_to_meta || ("HOOK_ADD" in hook_family_def);
+						// Custom addon event families (flagged HOOK_ADD, e.g. from a custom
+						// wiki) are hook.Add events, not methods of any table: unlike
+						// ENT:/WEAPON: overrides they must not show up as `obj:Method`
+						// completions or `function FAMILY:` declarations
+						let custom_events = "HOOK_ADD" in hook_family_def;
+						let add_to_meta = hook_family != "GM" && hook_family != "GAMEMODE" && !custom_events;
+						// GM hooks and custom event families are listenable via hook.Add
+						let add_to_hook_add = hook_family == "GM" || hook_family == "GAMEMODE" || custom_events;
 						if (add_to_hook_add) this.completions.hookAddFamilies.push(hook_family);
 						if (add_to_meta && !(hook_family in this.completions.metaFunc)) this.completions.metaFunc[hook_family] = {};
 						for (const [hook_name, hook_def] of Object.entries(hook_family_def["MEMBERS"])) {
@@ -987,7 +991,7 @@ class CompletionProvider {
 							}
 						}
 
-						this.completions.functionDecl.items.push(this.createCompletionItem(
+						if (!custom_events) this.completions.functionDecl.items.push(this.createCompletionItem(
 							"FUNC_DECL_HOOK",
 							"function " + hook_family + ":",
 							vscode.CompletionItemKind.Constructor,
@@ -995,7 +999,7 @@ class CompletionProvider {
 							hook_family + ":",
 							"function " + hook_family
 						));
-						
+
 						if (hook_family === "GM" && !GM_GAMEMODE) {
 							GM_GAMEMODE = true;
 							hook_family_def["SEARCH"] = hook_family_def["SEARCH"] === "GAMEMODE" ? "GM" : "GAMEMODE";
@@ -1070,9 +1074,11 @@ class CompletionProvider {
 
 				case "PANELS":
 					for (const [panel_name, panel_def] of Object.entries(entries)) {
+						// Panel class names are strings for vgui.Create("...") — never
+						// identifiers, so they belong to the panel list only, not to the
+						// generic global completions (upstream offered "DPanel" at top level)
 						let completionItem = this.createCompletionItem("PANEL", panel_name, vscode.CompletionItemKind.Constant, panel_def);
 						this.completions.panel.items.push(completionItem);
-						this.completions.global.items.push(completionItem);
 
 						this.completions.panelMeta[panel_name] = { parent: panel_def["PARENT"], items: [] };
 
