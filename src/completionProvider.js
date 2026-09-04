@@ -462,9 +462,8 @@ class CompletionProvider {
 	 * Finds the panel class assigned to `varName` via `varName = vgui.Create("X")`.
 	 * The last assignment to the variable before the cursor decides: it must be
 	 * a vgui.Create of a known panel, and a `local` one must still be in scope
-	 * (a local from another function does not leak into this one). Without any
-	 * assignment before the cursor, a later GLOBAL assignment still counts (it
-	 * may run before this code at runtime) — a later `local` never does.
+	 * (a local from another function does not leak into this one). Assignments
+	 * after the cursor never count — the variable is simply not defined yet.
 	 * Returns undefined when the variable is not clearly such a panel.
 	 */
 	resolveVguiVariable(document, pos, varName) {
@@ -488,22 +487,20 @@ class CompletionProvider {
 		// or `name ==`); captures the `local` keyword and the assigned expression
 		let assignRegex = new RegExp("(?:^|[^\\w.:])(local\\s+)?" + varName + "\\s*=(?!=)\\s*([^\\n]*)", "g");
 
-		let lastBefore, lastGlobalAnywhere;
+		let chosen;
 		let match;
 		while ((match = assignRegex.exec(clean))) {
+			if (match.index >= cursorOffset) break;
 			let vguiMatch = REGEXP_VGUI_ASSIGNMENT_NAME.exec(text.substring(match.index, match.index + match[0].length));
-			let info = {
+			chosen = {
 				offset: match.index,
 				isLocal: !!match[1],
 				panelClass: vguiMatch ? vguiMatch[1] : undefined,
 			};
-			if (!info.isLocal) lastGlobalAnywhere = info;
-			if (match.index < cursorOffset) lastBefore = info;
 		}
 
-		let chosen = lastBefore || lastGlobalAnywhere;
 		if (!chosen || !chosen.panelClass) return;
-		if (chosen === lastBefore && chosen.isLocal && !CompletionProvider.localStillInScope(clean, chosen.offset, cursorOffset)) return;
+		if (chosen.isLocal && !CompletionProvider.localStillInScope(clean, chosen.offset, cursorOffset)) return;
 
 		let panelClass = chosen.panelClass;
 		if (panelClass in this.completions.panelMeta || panelClass in this.completions.classMeta) return panelClass;

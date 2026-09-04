@@ -9,6 +9,7 @@ const INVALID_ESCAPE_SEQUENCE_HOVER = new vscode.MarkdownString("`invalid escape
 
 const HOVER_GENERIC = 0;
 const HOVER_ENUM = 1;
+const HOVER_REF = 2; // a wiki value referenced without a call (field, constant, function value)
 
 class HoverProvider {
 	constructor(GLua) {
@@ -51,7 +52,51 @@ class HoverProvider {
 			if ("parent" in token) token = token.parent;
 			else break;
 		}
+
+		// Not a call: a referenced wiki value — `BRANCH`, `math.pi`,
+		// `ATroll_System.NewBranchS` (library fields have no call to hover on)
+		let ref = this.GLua.GLuaParser.getTokenAt(document, pos);
+		while (ref) {
+			if (ref.type === "CallExpression") break; // calls were handled above
+			// the member part of `lib.name` is looked up as the whole member
+			// expression, not as a bare global of the same name
+			let isMemberPart = ref.type === "Identifier" && ref.parent && ref.parent.type === "MemberExpression" && ref.parent.identifier === ref;
+			if (!isMemberPart && (ref.type === "Identifier" || ref.type === "MemberExpression")) {
+				let doc = this.findWikiReferenceDoc(ref);
+				if (doc) return [HOVER_REF, doc, TokenAnalyzer.getTokenRange(ref), ref];
+			}
+			if ("parent" in ref) ref = ref.parent;
+			else break;
+		}
 		return [];
+	}
+
+	/** `a.b.c` as ["a","b","c"] for a "."-only member chain rooted in a non-local identifier. */
+	static dottedName(token) {
+		if (token.type === "Identifier") return token.isLocal ? undefined : [token.name];
+		if (token.type !== "MemberExpression") return;
+		let parts = [];
+		let t = token;
+		while (t && t.type === "MemberExpression") {
+			if (t.indexer !== "." || !t.identifier || t.identifier.type !== "Identifier") return;
+			parts.unshift(t.identifier.name);
+			t = t.base;
+		}
+		if (!t || t.type !== "Identifier" || t.isLocal) return;
+		parts.unshift(t.name);
+		return parts;
+	}
+
+	/** Wiki doc of a global, library member or library referenced by name (no call needed). */
+	findWikiReferenceDoc(token) {
+		let parts = HoverProvider.dottedName(token);
+		if (!parts) return;
+		let docs = this.GLua.WikiProvider.docs;
+		let name = parts.join(".");
+		let tags = parts.length === 1
+			? ["GLOBAL:" + name, "PACKAGE:" + name, "FUNCTION:" + name]
+			: ["FUNCTION:" + name, "PACKAGE:" + name];
+		for (let i = 0; i < tags.length; i++) if (tags[i] in docs) return docs[tags[i]];
 	}
 
 	pushWikiHovers(hovers, docs) {
@@ -130,6 +175,10 @@ class HoverProvider {
 
 				case HOVER_ENUM:
 					this.pushWikiHovers(hovers, [this.GLua.WikiProvider.docs[full_call]]);
+					break;
+
+				case HOVER_REF:
+					this.pushWikiHovers(hovers, [full_call]);
 					break;
 			}
 
