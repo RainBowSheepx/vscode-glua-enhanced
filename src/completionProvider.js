@@ -463,7 +463,8 @@ class CompletionProvider {
 	 * The last assignment to the variable before the cursor decides: it must be
 	 * a vgui.Create of a known panel, and a `local` one must still be in scope
 	 * (a local from another function does not leak into this one). Without any
-	 * assignment before the cursor the last one in the file is used.
+	 * assignment before the cursor, a later GLOBAL assignment still counts (it
+	 * may run before this code at runtime) — a later `local` never does.
 	 * Returns undefined when the variable is not clearly such a panel.
 	 */
 	resolveVguiVariable(document, pos, varName) {
@@ -487,7 +488,7 @@ class CompletionProvider {
 		// or `name ==`); captures the `local` keyword and the assigned expression
 		let assignRegex = new RegExp("(?:^|[^\\w.:])(local\\s+)?" + varName + "\\s*=(?!=)\\s*([^\\n]*)", "g");
 
-		let lastBefore, lastAnywhere;
+		let lastBefore, lastGlobalAnywhere;
 		let match;
 		while ((match = assignRegex.exec(clean))) {
 			let vguiMatch = REGEXP_VGUI_ASSIGNMENT_NAME.exec(text.substring(match.index, match.index + match[0].length));
@@ -496,11 +497,11 @@ class CompletionProvider {
 				isLocal: !!match[1],
 				panelClass: vguiMatch ? vguiMatch[1] : undefined,
 			};
-			lastAnywhere = info;
+			if (!info.isLocal) lastGlobalAnywhere = info;
 			if (match.index < cursorOffset) lastBefore = info;
 		}
 
-		let chosen = lastBefore || lastAnywhere;
+		let chosen = lastBefore || lastGlobalAnywhere;
 		if (!chosen || !chosen.panelClass) return;
 		if (chosen === lastBefore && chosen.isLocal && !CompletionProvider.localStillInScope(clean, chosen.offset, cursorOffset)) return;
 
